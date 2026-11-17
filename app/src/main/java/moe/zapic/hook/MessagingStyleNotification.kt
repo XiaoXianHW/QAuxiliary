@@ -98,6 +98,8 @@ object MessagingStyleNotification : CommonConfigFunctionHook(targetProc = SyncUt
     }
 
     private val notificationInfoMap = WeakHashMap<Any, Pair<Any, Intent>>()
+    private val pendingRecentInfo = ThreadLocal<Any?>()
+    private val pendingNotificationInfo = ThreadLocal<Pair<Any, Intent>?>()
 
     private val historyMessage: HashMap<String, MessagingStyle> = HashMap()
     val avatarHelper = QQAvatarHelper()
@@ -157,8 +159,8 @@ object MessagingStyleNotification : CommonConfigFunctionHook(targetProc = SyncUt
                 ) to 1
             }.getOrThrow()
 
-        lateinit var buildNotification: Method
-        lateinit var recentInfoBuilder: Method
+        var buildNotification: Method? = null
+        var recentInfoBuilder: Method? = null
         cNotificationFacade.declaredMethods.forEach {
             if (it.paramCount < 3 || it.parameterTypes[0] != cAppRuntime) return@forEach
             if (it.paramCount == 3 && it.parameterTypes[2] == cCommonInfo ||
@@ -174,23 +176,31 @@ object MessagingStyleNotification : CommonConfigFunctionHook(targetProc = SyncUt
 
         val context = hostInfo.application
 
-        // 获取消息详细信息 使用WeakMap存储(K/V:简单信息->详细信息)
-        hookAfterIfEnabled(recentInfoBuilder) { param ->
-            val si = param.args[1]
-            val it = param.result.get(Intent::class.java) ?: return@hookAfterIfEnabled
-            notificationInfoMap[param.result] = Pair(si, it)
-        }
+        val recentInfoBuilderMethod = recentInfoBuilder
+        val buildNotificationMethod = buildNotification
+        if (recentInfoBuilderMethod != null && buildNotificationMethod != null) {
+            // 获取消息详细信息 使用WeakMap存储(K/V:简单信息->详细信息)
+            hookAfterIfEnabled(recentInfoBuilderMethod) { param ->
+                val si = param.args[1]
+                val it = param.result.get(Intent::class.java) ?: return@hookAfterIfEnabled
+                notificationInfoMap[param.result] = Pair(si, it)
+            }
 
-        // 构建通知前获取(K/V:contentIntent->详细信息)
-        hookBeforeIfEnabled(buildNotification) { param ->
-            val el = param.args[1] as Any
-            val pt = el.get(PendingIntent::class.java) ?: return@hookBeforeIfEnabled
-            notificationInfoMap[pt] = notificationInfoMap[el]
-            notificationInfoMap.remove(el)
+            // 构建通知前获取(K/V:contentIntent->详细信息)
+            hookBeforeIfEnabled(buildNotificationMethod) { param ->
+                val el = param.args[1] as Any
+                val pt = el.get(PendingIntent::class.java) ?: return@hookBeforeIfEnabled
+                notificationInfoMap[pt] = notificationInfoMap[el]
+                notificationInfoMap.remove(el)
+            }
+        } else {
+            hookNotificationBuilderSince9380(cNotificationFacade, cAppRuntime, cRecentInfo, cCommonInfo)
         }
         hookBeforeIfEnabled(postNotification) { param ->
             val oldNotification = param.args[postNotificationIndex] as Notification
-            val pair = notificationInfoMap[oldNotification.contentIntent] ?: return@hookBeforeIfEnabled
+            val pair = notificationInfoMap[oldNotification.contentIntent]
+                ?: pendingNotificationInfo.get()
+                ?: return@hookBeforeIfEnabled
             val info = QQRecentContactInfo(pair.first)
             notificationInfoMap.remove(oldNotification.contentIntent)
             if (info.chatType == 1 || info.chatType == 2) {
@@ -256,6 +266,45 @@ object MessagingStyleNotification : CommonConfigFunctionHook(targetProc = SyncUt
             historyMessage.clear()
         }
         return true
+    }
+
+    /**
+     * Since QQ 9.3.80, a static method (NotificationFacade, AppRuntime, RecentContactInfo, NotificationCommonInfo, ...)
+     * builds the notification element and posts the notification synchronously on the same thread.
+     */
+    private fun hookNotificationBuilderSince9380(
+        cNotificationFacade: Class<*>,
+        cAppRuntime: Class<*>,
+        cRecentInfo: Class<*>,
+        cCommonInfo: Class<*>
+    ) {
+        val buildAndPost = cNotificationFacade.declaredMethods.single {
+            java.lang.reflect.Modifier.isStatic(it.modifiers) && it.paramCount >= 4 &&
+                it.parameterTypes[0] == cNotificationFacade && it.parameterTypes[1] == cAppRuntime &&
+                it.parameterTypes[2] == cRecentInfo && it.parameterTypes[3] == cCommonInfo
+        }
+        val cElementBuilder = "com.tencent.qqnt.notification.struct.NotificationElementBuilder".clazz!!
+        val buildElementMethods = cElementBuilder.declaredMethods.filter { m ->
+            m.paramCount == 0 && m.returnType.declaredFields.any { it.type == Intent::class.java }
+        }
+        check(buildElementMethods.isNotEmpty()) { "NotificationElementBuilder build method not found" }
+        hookBeforeIfEnabled(buildAndPost) { param ->
+            pendingRecentInfo.set(param.args[2])
+        }
+        hookAfterIfEnabled(buildAndPost) {
+            pendingRecentInfo.remove()
+            pendingNotificationInfo.remove()
+        }
+        for (buildElement in buildElementMethods) {
+            val intentField = buildElement.returnType.declaredFields.first { it.type == Intent::class.java }
+            intentField.isAccessible = true
+            hookAfterIfEnabled(buildElement) { param ->
+                val recentInfo = pendingRecentInfo.get() ?: return@hookAfterIfEnabled
+                val element = param.result ?: return@hookAfterIfEnabled
+                val intent = intentField.get(element) as Intent? ?: return@hookAfterIfEnabled
+                pendingNotificationInfo.set(Pair(recentInfo, intent))
+            }
+        }
     }
 
     private fun getShortcut(id: String, name: String, icon: IconCompat, intent: Intent): ShortcutInfoCompat {
