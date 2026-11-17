@@ -708,6 +708,7 @@ public class ExfriendManager {
                 tmp -= fcs[len - i - 1].friend_count;
             }
             integrity = tmp == 0;
+            Log.i("asyncUpdateFriendListTask: chunks=" + fcs.length + ", total=" + tmp);
             if (!integrity) {
                 Log.i("Inconsistent friendlist chunk data!Aborting!total=" + tmp);
                 return;
@@ -849,19 +850,66 @@ public class ExfriendManager {
         return builder.build();
     }
 
-    public void doRequestFlRefresh() {
+    public String doRequestFlRefresh() {
         boolean inLogin;
         inLogin = (AppRuntimeHelper.getLongAccountUin() == mUin);
         if (!inLogin) {
             Log.i("doRequestFlRefresh but uin(" + mUin + ") isn't logged in.");
-            return;
+            return "当前账号未登录";
         }
         try {
+            if (requestFriendListByFriendHandler()) {
+                Log.i("doRequestFlRefresh: request sent by FriendHandler");
+                return "已通过 FriendHandler 发送刷新请求";
+            }
             Reflex.invokeVirtualAny(ManagerHelper.getFriendListHandler(), true, true, boolean.class,
                     boolean.class, void.class);
+            Log.i("doRequestFlRefresh: request sent by FriendListHandler");
+            return "已通过 FriendListHandler 发送刷新请求";
         } catch (Exception e) {
-            Log.e(e);
+            Log.e("doRequestFlRefresh failed", e);
+            return "发送刷新请求失败: " + e;
         }
+    }
+
+    /**
+     * Since QQ 9.3.x, FriendListHandler.getFriendGroupList no longer sends the JCE request
+     * (it is redirected to NT), so GetFriendListResp is never received.
+     * Send "friendlist.getFriendGroupList" through FriendHandler directly instead.
+     *
+     * @return true if the request is sent, false if FriendHandler is not available
+     */
+    private static boolean requestFriendListByFriendHandler() throws ReflectiveOperationException {
+        Class<?> kFriendHandler = Initiator.load("com.tencent.mobileqq.friend.handler.FriendHandler");
+        Class<?> kRequestData = Initiator.load("com.tencent.mobileqq.friend.data.FriendListRequestData");
+        if (kFriendHandler == null || kRequestData == null) {
+            return false;
+        }
+        Object appInterface = AppRuntimeHelper.getQQAppInterface();
+        java.lang.reflect.Method getBusinessHandler = appInterface.getClass().getMethod("getBusinessHandler", String.class);
+        Object handler = getBusinessHandler.invoke(appInterface, kFriendHandler.getName());
+        java.lang.reflect.Method request = null;
+        for (java.lang.reflect.Method m : kFriendHandler.getDeclaredMethods()) {
+            Class<?>[] argt = m.getParameterTypes();
+            if (m.getReturnType() == void.class && argt.length == 2
+                    && argt[0] == kRequestData && argt[1] == boolean.class) {
+                request = m;
+                break;
+            }
+        }
+        if (handler == null || request == null) {
+            Log.w("requestFriendListByFriendHandler: handler=" + handler + ", request=" + request);
+            return false;
+        }
+        Object requestData = kRequestData.newInstance();
+        kRequestData.getMethod("setFriendStartIndex", int.class).invoke(requestData, 0);
+        kRequestData.getMethod("setFriendCount", int.class).invoke(requestData, 200);
+        kRequestData.getMethod("setGroupStartIndex", int.class).invoke(requestData, 0);
+        kRequestData.getMethod("setGroupCount", int.class).invoke(requestData, 100);
+        kRequestData.getMethod("setPullRefresh", boolean.class).invoke(requestData, true);
+        request.setAccessible(true);
+        request.invoke(handler, requestData, false);
+        return true;
     }
 
     public long getLastUpdateTimeSec() {
