@@ -142,7 +142,7 @@ object JustPush : CommonSwitchFunctionHook(targetProc = SyncUtils.PROC_ANY) {
     }
 
     private fun hookServices() {
-        XposedHelpers.findAndHookMethod("com.tencent.mobileqq.qfix.QFixApplication".clazz, "onCreate", object : XC_MethodReplacement() {
+        XposedHelpers.findAndHookMethod(arrayListOf("com.tencent.mobileqq.qfix.QFixApplication", "com.tencent.mobileqq.app.qfix.QFixApplication").clazz, "onCreate", object : XC_MethodReplacement() {
             @SuppressLint("UnspecifiedRegisterReceiverFlag")
             @Throws(Throwable::class)
             override fun replaceHookedMethod(param: MethodHookParam): Any? {
