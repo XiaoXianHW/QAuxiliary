@@ -2,6 +2,10 @@
 <menu xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto">
     <item
+        android:id="@+id/menu_item_refresh_friend_list"
+        android:title="立即刷新好友列表"
+        app:showAsAction="never" />
+    <item
         android:id="@+id/menu_item_add_record"
         android:title="添加"
         app:showAsAction="never" />

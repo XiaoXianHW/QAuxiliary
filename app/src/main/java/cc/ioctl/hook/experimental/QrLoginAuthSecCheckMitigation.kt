@@ -51,19 +51,19 @@ object QrLoginAuthSecCheckMitigation : CommonSwitchFunctionHook() {
 
     override fun initOnce(): Boolean {
         if (QAppUtils.isQQnt()) {
-            //com.tencent.biz.qrcode.activity.QRLoginAuthActivity$h
-            for (i in 97 until 112) {
-                val clazz = "com.tencent.biz.qrcode.activity.QRLoginAuthActivity\$${i.toChar()}".clazz ?: break
-                if (clazz.superclass != CountDownTimer::class.java) continue
-                XposedBridge.hookAllConstructors(clazz, object : XC_MethodHook() {
-                    override fun beforeHookedMethod(param: MethodHookParam) {
-                        param.args[1] = 0
-                        param.args[2] = 0
+            val kQRLoginAuthActivity = Initiator.loadClass("com.tencent.biz.qrcode.activity.QRLoginAuthActivity")
+            val countDownTimerClass = findCountDownTimerClass(kQRLoginAuthActivity) ?: return false
+            XposedBridge.hookAllConstructors(countDownTimerClass, object : XC_MethodHook() {
+                override fun beforeHookedMethod(param: MethodHookParam) {
+                    // CountDownTimer(millisInFuture, countDownInterval), finish immediately
+                    val paramTypes = (param.method as java.lang.reflect.Constructor<*>).parameterTypes
+                    val millisIndex = paramTypes.indexOfFirst { it == java.lang.Long.TYPE }
+                    if (millisIndex >= 0) {
+                        param.args[millisIndex] = 0L
                     }
-                })
-                return true
-            }
-            return false
+                }
+            })
+            return true
         }
         val kQRLoginAuthActivity = Initiator.loadClass("com.tencent.biz.qrcode.activity.QRLoginAuthActivity")
         val confirm_risk_login_btn = Initiator.loadClass(hostInfo.packageName + ".R\$id")
@@ -103,6 +103,23 @@ object QrLoginAuthSecCheckMitigation : CommonSwitchFunctionHook() {
             }
         }
         return true
+    }
+
+    /**
+     * QRLoginAuthActivity$h before QQ 9.3.80, com.tencent.biz.qrcode.activity.r since QQ 9.3.80
+     */
+    private fun findCountDownTimerClass(kQRLoginAuthActivity: Class<*>): Class<*>? {
+        val prefixes = listOf("com.tencent.biz.qrcode.activity.QRLoginAuthActivity\$", "com.tencent.biz.qrcode.activity.")
+        for (prefix in prefixes) {
+            for (c in 'a'..'z') {
+                val clazz = Initiator.load(prefix + c) ?: continue
+                if (clazz.superclass != CountDownTimer::class.java) continue
+                if (clazz.declaredConstructors.any { it.parameterTypes.firstOrNull() == kQRLoginAuthActivity }) {
+                    return clazz
+                }
+            }
+        }
+        return null
     }
 
 }

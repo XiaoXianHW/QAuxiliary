@@ -42,6 +42,8 @@ import io.github.qauxv.util.dexkit.DexKit
 import io.github.qauxv.util.dexkit.NQZMoment_EntranceEnabled
 import io.github.qauxv.util.dexkit.QZoneFeedxTopEntranceMethod
 import io.github.qauxv.util.requireMinQQVersion
+import java.lang.reflect.Method
+import java.lang.reflect.Modifier
 
 /**
  * Hide QZone-Moment title bar entrance
@@ -100,12 +102,25 @@ object HideQZMTitleBarEntrance : CommonSwitchFunctionHook(
                 param.setResult(null)
             }
         } catch (_: Exception) {
-            hookBeforeIfEnabled(DexKit.requireMethodFromCache(QZoneFeedxTopEntranceMethod)){
+            val method = DexKit.loadMethodFromCache(QZoneFeedxTopEntranceMethod) ?: findQZoneFeedxTopEntranceMethod()
+            hookBeforeIfEnabled(method) {
                 (it.thisObject as View).isClickable = false
                 it.result = null
             }
         }
         return true
+    }
+
+    /**
+     * Since QQ 9.3.80 the trait string is gone, the target is the only non-lifecycle no-arg instance method.
+     */
+    private fun findQZoneFeedxTopEntranceMethod(): Method {
+        val clazz = Initiator.loadClass("com.qzone.reborn.feedx.widget.entrance.QZoneFeedxTopEntranceManagerView")
+        val lifecycleMethods = setOf("onDestroy", "onPause", "onResume")
+        return clazz.declaredMethods.single { m ->
+            m.parameterTypes.isEmpty() && m.returnType == Void.TYPE &&
+                !Modifier.isStatic(m.modifiers) && m.name !in lifecycleMethods
+        }
     }
 
 }

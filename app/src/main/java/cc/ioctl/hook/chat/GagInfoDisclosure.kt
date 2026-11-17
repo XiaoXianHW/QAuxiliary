@@ -130,6 +130,7 @@ object GagInfoDisclosure : CommonSwitchFunctionHook(
             hookAfterIfEnabled(DexKit.requireMethodFromCache(Hd_GagInfoDisclosure_Method)) { param ->
                 val msgInfo = param.args[1]
                 val vMsg = msgInfo.get("vMsg") as ByteArray? ?: return@hookAfterIfEnabled
+                if (vMsg.size < 24) return@hookAfterIfEnabled
                 if (vMsg[4].toInt() == 12) {
                     val selfUin = AppRuntimeHelper.getAccount()
                     val troopUin = getLongData(vMsg, 0).toString()

@@ -14,7 +14,6 @@ import io.github.qauxv.hook.CommonSwitchFunctionHook;
 import io.github.qauxv.util.Initiator;
 import io.github.qauxv.util.SyncUtils;
 import java.lang.reflect.Method;
-import kotlin.collections.ArraysKt;
 
 @UiItemAgentEntry
 @FunctionHookEntry
@@ -35,11 +34,18 @@ public class HookQWallet extends CommonSwitchFunctionHook {
             if (kQWalletHomePreviewController != null) {
                 // 预防广告视图显示导致的黑屏
                 // public final QWalletHomePreviewController.?(QWallBaseFragment|QWalletBaseFragment)Z
-                Method methodIsShowAdView = ArraysKt.single(kQWalletHomePreviewController.getDeclaredMethods(),
-                        it -> it.getReturnType() == boolean.class &&
-                                it.getParameterTypes().length == 1 &&
-                                it.getParameterTypes()[0].getSimpleName().endsWith("BaseFragment"));
-                HookUtils.hookBeforeIfEnabled(this, methodIsShowAdView, param -> param.setResult(true));
+                // not present since QQ 9.3.80
+                Method methodIsShowAdView = null;
+                for (Method m : kQWalletHomePreviewController.getDeclaredMethods()) {
+                    if (m.getReturnType() == boolean.class && m.getParameterTypes().length == 1
+                            && m.getParameterTypes()[0].getSimpleName().endsWith("BaseFragment")) {
+                        methodIsShowAdView = m;
+                        break;
+                    }
+                }
+                if (methodIsShowAdView != null) {
+                    HookUtils.hookBeforeIfEnabled(this, methodIsShowAdView, param -> param.setResult(true));
+                }
             }
             Method onViewCreated = kQWalletHomeFragment.getDeclaredMethod("onViewCreated", View.class, Bundle.class);
             HookUtils.hookBeforeIfEnabled(this, onViewCreated, param -> {

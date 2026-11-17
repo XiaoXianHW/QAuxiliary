@@ -69,6 +69,7 @@ import io.github.qauxv.ui.CommonContextWrapper;
 import io.github.qauxv.ui.CustomDialog;
 import io.github.qauxv.ui.ResUtils;
 import io.github.qauxv.util.Log;
+import io.github.qauxv.util.SyncUtils;
 import io.github.qauxv.util.Toasts;
 import io.github.qauxv.util.UiThread;
 import java.text.SimpleDateFormat;
@@ -357,7 +358,14 @@ public class ExfriendListFragment extends BaseRootLayoutFragment {
     @Override
     public boolean onOptionsItemSelected(@NonNull MenuItem item) {
         int id = item.getItemId();
-        if (id == R.id.menu_item_add_record) {
+        if (id == R.id.menu_item_refresh_friend_list) {
+            Context ctx = requireContext();
+            new Thread(() -> {
+                String result = exm.doRequestFlRefresh();
+                SyncUtils.runOnUiThread(() -> Toasts.info(ctx, result + "，稍后重新打开本页查看"));
+            }).start();
+            return true;
+        } else if (id == R.id.menu_item_add_record) {
             showManualAddRecordDialog();
             return true;
         } else if (id == R.id.menu_item_edit_exclusion_list) {

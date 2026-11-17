@@ -137,6 +137,7 @@ class TroubleshootFragment : BaseRootLayoutFragment() {
             },
             CategoryItem("功能") {
                 textItem("功能异常列表", null, onClick = clickToShowFuncList)
+                textItem("模块调试日志", "查看 QQ 主进程中最近的模块日志，可一键复制", onClick = clickToShowDebugLog)
             },
             CategoryItem("缓存") {
                 textItem("清除缓存", "清除模块缓存并重新计算适配数据", onClick = clickToClearCache)
@@ -302,6 +303,10 @@ class TroubleshootFragment : BaseRootLayoutFragment() {
             set(value) {
                 PluginDelayableHook.disablePluginDelayableHook = value
             }
+    }
+
+    private val clickToShowDebugLog: (View) -> Unit = {
+        SettingsUiFragmentHostActivity.startFragmentWithContext(it.context, DebugLogFragment::class.java, null)
     }
 
     private val clickToShowFuncList: (View) -> Unit = {

@@ -80,8 +80,9 @@ sealed class DexKitTarget {
     abstract val declaringClass: String
     open val findMethod: Boolean = false
     abstract val filter: dexkitFilter
+    open val cacheKeySalt: String = ""
 
-    private val descCacheKey by lazy { ConfigData<String>("cache#$name#$version", ConfigManager.getCache()) }
+    private val descCacheKey by lazy { ConfigData<String>("cache#$name#$version$cacheKeySalt", ConfigManager.getCache()) }
     var descCache: String?
         get() = descCacheKey.value
         set(value) {
@@ -839,7 +840,15 @@ data object MultiSelectBarVM : DexKitTarget.UsingStr() {
     override val findMethod: Boolean = false
     override val declaringClass = ""
     override val traitString = arrayOf("MultiSelectBarVM")
-    override val filter = DexKitFilter.allowAll
+    override val cacheKeySalt = "#qq9380v2"
+    override val filter = filter@{ it: DexMethodDescriptor ->
+        // QQ 9.3.80 中 MultiSelectBarVM 的 lambda 内部类以及新增的 AskQBaoMultiSelectBarVM
+        // 也包含 "MultiSelectBarVM" 字符串，需排除，避免候选类不唯一
+        if ('$' in it.declaringClass) return@filter false
+        val clz = load(it.declaringClass) ?: return@filter false
+        val superName = clz.superclass?.name ?: return@filter true
+        !superName.startsWith("com.tencent.mobileqq.aio.input.multiselect.")
+    }
 }
 
 data object AIOSendMsg : DexKitTarget.UsingStr() {

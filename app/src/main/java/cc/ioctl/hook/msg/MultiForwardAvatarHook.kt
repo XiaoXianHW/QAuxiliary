@@ -42,6 +42,7 @@ import cc.ioctl.util.LayoutHelper
 import cc.ioctl.util.Reflex
 import cc.ioctl.util.hookBeforeIfEnabled
 import cc.ioctl.util.ui.FaultyDialog
+import com.github.kyuubiran.ezxhelper.utils.hookAfter
 import com.github.kyuubiran.ezxhelper.utils.hookBefore
 import com.tencent.qqnt.kernel.nativeinterface.MsgRecord
 import io.github.qauxv.R
@@ -91,13 +92,25 @@ object MultiForwardAvatarHook : CommonSwitchFunctionHook(arrayOf(CAIOUtils, Mult
     override fun doFind(): Boolean {
         getCurrentBackend().use { backend ->
             val dexKit = backend.getDexKitBridge()
-            val m = dexKit.findMethod {
+            var m = dexKit.findMethod {
                 matcher {
                     declaredClass = "com.tencent.mobileqq.aio.msglist.holder.component.avatar.AIOAvatarContentComponent"
                     returnType = "void"
                     paramTypes(*arrayOf<Class<*>>())
                     addInvoke {
                         name = "setOnClickListener"
+                    }
+                }
+            }
+            if (m.size != 1) {
+                // since QQ 9.3.80, the listeners are set in the bind method which has parameters
+                m = dexKit.findMethod {
+                    matcher {
+                        declaredClass = "com.tencent.mobileqq.aio.msglist.holder.component.avatar.AIOAvatarContentComponent"
+                        returnType = "void"
+                        addInvoke {
+                            name = "setOnClickListener"
+                        }
                     }
                 }
             }
@@ -145,38 +158,17 @@ object MultiForwardAvatarHook : CommonSwitchFunctionHook(arrayOf(CAIOUtils, Mult
         if (requireMinQQVersion(QQVersion.QQ_8_9_63_BETA_11345)) {
             val clz = Initiator.loadClass("com.tencent.mobileqq.aio.msglist.holder.component.avatar.AIOAvatarContentComponent")
             // 设置头像点击和长按事件的方法
-            DexKit.requireMethodFromCache(Multiforward_Avatar_setListener_NT).hookBefore { param ->
-                var layout: RelativeLayout?
-                clz.declaredFields.single {//Lazy avatarContainer
-                    it.name == when {
-                        requireMinQQVersion(QQVersion.QQ_9_1_70) -> "h"
-                        requireMinQQVersion(QQVersion.QQ_9_1_50) -> "i"
-                        requireMinQQVersion(QQVersion.QQ_9_0_90) -> "h"
-                        requireMinQQVersion(QQVersion.QQ_9_0_65) -> "i"
-                        else -> "h"
+            val setListener = DexKit.requireMethodFromCache(Multiforward_Avatar_setListener_NT)
+            if (setListener.parameterTypes.isEmpty()) {
+                setListener.hookBefore { param ->
+                    if (bindMultiForwardAvatarClick(clz, param.thisObject)) {
+                        param.result = null
                     }
-                }.let {
-                    it.isAccessible = true  //Lazy
-                    layout = (it.get(param.thisObject))!!.invoke("getValue") as RelativeLayout
                 }
-                if (layout!!.context.javaClass.name == "com.tencent.mobileqq.activity.MultiForwardActivity") {
-                    layout!!.setOnClickListener {
-                        clz.declaredFields.single {
-                            it.type.name == "com.tencent.mobileqq.aio.msg.AIOMsgItem"
-                        }.let {
-                            it.isAccessible = true
-                            try {
-                                (it.get(param.thisObject)!!.invoke("getMsgRecord")!! as MsgRecord).let {
-                                    val senderUin = it.senderUin   //对方QQ
-                                    val troopUin = if (it.chatType == ChatTypeConstants.GROUP) it.peerUin else null
-                                    createAndShowDialogCommon(layout!!.context, it, senderUin, troopUin)
-                                }
-                            } catch (e: Exception) {
-                                FaultyDialog.show(layout!!.context, e)
-                            }
-                        }
-                    }
-                    param.result = null
+            } else {
+                // since QQ 9.3.80, override the listener after the bind method returns
+                setListener.hookAfter { param ->
+                    bindMultiForwardAvatarClick(clz, param.thisObject)
                 }
             }
             return true
@@ -281,6 +273,47 @@ object MultiForwardAvatarHook : CommonSwitchFunctionHook(arrayOf(CAIOUtils, Mult
 
 
     @UiThread
+    private fun bindMultiForwardAvatarClick(clz: Class<*>, component: Any): Boolean {
+        val layout = findAvatarLayout(clz, component) ?: return false
+        if (layout.context.javaClass.name != "com.tencent.mobileqq.activity.MultiForwardActivity") {
+            return false
+        }
+        layout.setOnClickListener {
+            val msgItemField = clz.declaredFields.single { it.type.name == "com.tencent.mobileqq.aio.msg.AIOMsgItem" }
+            msgItemField.isAccessible = true
+            try {
+                val msgRecord = msgItemField.get(component)!!.invoke("getMsgRecord") as MsgRecord
+                val senderUin = msgRecord.senderUin
+                val troopUin = if (msgRecord.chatType == ChatTypeConstants.GROUP) msgRecord.peerUin else null
+                createAndShowDialogCommon(layout.context, msgRecord, senderUin, troopUin)
+            } catch (e: Exception) {
+                FaultyDialog.show(layout.context, e)
+            }
+        }
+        return true
+    }
+
+    private fun findAvatarLayout(clz: Class<*>, component: Any): RelativeLayout? {
+        val legacyName = when {
+            requireMinQQVersion(QQVersion.QQ_9_1_70) -> "h"
+            requireMinQQVersion(QQVersion.QQ_9_1_50) -> "i"
+            requireMinQQVersion(QQVersion.QQ_9_0_90) -> "h"
+            requireMinQQVersion(QQVersion.QQ_9_0_65) -> "i"
+            else -> "h"
+        }
+        val lazyFields = clz.declaredFields
+            .filter { it.type.name == "kotlin.Lazy" }
+            .sortedBy { if (it.name == legacyName) 0 else 1 }
+        for (field in lazyFields) {
+            field.isAccessible = true
+            val value = field.get(component)?.invoke("getValue")
+            if (value is RelativeLayout) {
+                return value
+            }
+        }
+        return null
+    }
+
     private fun createAndShowDialogCommon(hostContext: Context, msg: Any, senderUin: Long, troopUin: Long?) {
         check(senderUin > 0) { "senderUin must be positive, got $senderUin" }
         //check(troopUin == null || troopUin > 0) { "troopUin must be positive or null, got $troopUin" }

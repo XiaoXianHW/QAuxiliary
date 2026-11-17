@@ -180,6 +180,8 @@ public class DeletionObserver extends BasePersistBackgroundHook {
                 protected void afterHookedMethod(MethodHookParam param) throws Throwable {
                     try {
                         FriendChunk fc = new FriendChunk(param.thisObject);
+                        Log.i("GetFriendListResp: uin=" + fc.uin + ", start=" + fc.startIndex + ", count=" + fc.friend_count
+                            + ", total=" + fc.totoal_friend_count + ", result=" + fc.result);
                         ExfriendManager.onGetFriendListResp(fc);
                     } catch (Throwable e) {
                         traceError(e);

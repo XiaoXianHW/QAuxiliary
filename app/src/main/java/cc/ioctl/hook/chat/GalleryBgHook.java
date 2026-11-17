@@ -68,7 +68,13 @@ public class GalleryBgHook extends CommonSwitchFunctionHook {
                     Object mDragLayout = Reflex.getInstanceObject(param.thisObject,
                             HostInfo.requireMinQQVersion(QQVersion.QQ_9_0_56) ? "dragLayout" : "mDragLayout",
                             null);
-                    Reflex.setInstanceObject(mDragLayout, "mWindowBgDrawable", new ColorDrawable(Color.TRANSPARENT));
+                    ColorDrawable transparent = new ColorDrawable(Color.TRANSPARENT);
+                    try {
+                        Reflex.setInstanceObject(mDragLayout, "mWindowBgDrawable", transparent);
+                    } catch (NoSuchFieldException e) {
+                        // renamed since QQ 9.3.x
+                        Reflex.setInstanceObject(mDragLayout, "windowBgDrawable", transparent);
+                    }
                 });
             }
             Method m2 = kRFWLayerAnimPart.getDeclaredMethod("updateBackgroundAlpha", int.class);
