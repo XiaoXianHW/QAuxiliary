@@ -143,14 +143,26 @@ object ShowMsgCount : CommonSwitchFunctionHook(
         if (requireMinQQVersion(QQVersion.QQ_9_2_30)) {
             // 总消息数量 9.2.30 ~ 9.2.55
             val clz = Initiator.loadClass("com.tencent.mobileqq.activity.framebusiness.controllerinject.FrameControllerInjectImpl")
-            val method = clz.declaredMethods.single { method ->
+            val kQUIBadge = Initiator.loadClass("com.tencent.mobileqq.quibadge.QUIBadge")
+            val legacyMethod = clz.declaredMethods.firstOrNull { method ->
                 val params = method.parameterTypes
                 params.size == 5 && params[0] == Int::class.java && params[1] == Int::class.java && params[2] == Int::class.java
-                    && params[3] == Initiator.loadClass("com.tencent.mobileqq.quibadge.QUIBadge")
-                    && params[4] == String::class.java
+                    && params[3] == kQUIBadge && params[4] == String::class.java
             }
-            hookBeforeIfEnabled(method) { param ->
-                param.args[2] = Int.MAX_VALUE
+            if (legacyMethod != null) {
+                hookBeforeIfEnabled(legacyMethod) { param ->
+                    param.args[2] = Int.MAX_VALUE
+                }
+            } else {
+                // since 9.3.80: (QUIBadge badge, int count, String text, int type, int maxCount)
+                val method = clz.declaredMethods.single { method ->
+                    val params = method.parameterTypes
+                    params.size == 5 && params[0] == kQUIBadge && params[1] == Int::class.java && params[2] == String::class.java
+                        && params[3] == Int::class.java && params[4] == Int::class.java
+                }
+                hookBeforeIfEnabled(method) { param ->
+                    param.args[4] = Int.MAX_VALUE
+                }
             }
         } else if (requireMinQQVersion(QQVersion.QQ_9_0_8) || requireMinTimVersion(TIMVersion.TIM_4_0_95_BETA)) {
             // 总消息数量 9.0.8 ~ 9.2.20
